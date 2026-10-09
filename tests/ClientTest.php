@@ -131,7 +131,6 @@ final class ClientTest extends TestCase
                 'layer' => 'cius',
                 'line' => 12,
                 'message' => 'The buyer reference (Leitweg-ID) is missing.',
-                'btCodes' => ['BT-10'],
                 'fields' => ['buyerReference'],
                 'raw' => '[BR-DE-15] ...',
             ]],
@@ -149,7 +148,7 @@ final class ClientTest extends TestCase
             self::assertSame('BR-DE-15', $e->errors[0]->rule);
             self::assertSame('cius', $e->errors[0]->layer);
             self::assertSame(12, $e->errors[0]->line);
-            self::assertSame(['BT-10'], $e->errors[0]->btCodes);
+            self::assertSame('BR-DE-15', $e->errors[0]->data['rule']);
             self::assertSame(['buyerReference'], $e->errors[0]->fields);
             self::assertStringContainsString('400', $e->getMessage());
         }
@@ -161,7 +160,7 @@ final class ClientTest extends TestCase
             'title' => 'One or more validation errors occurred.',
             'status' => 400,
             'errorCode' => 4002,
-            'errors' => [['rule' => null, 'layer' => null, 'line' => null, 'message' => 'The seller name is required.', 'btCodes' => ['BT-27'], 'fields' => ['seller.name'], 'raw' => null]],
+            'errors' => [['rule' => null, 'layer' => null, 'line' => null, 'message' => 'The seller name is required.', 'fields' => ['seller.name'], 'raw' => null]],
         ], 400));
 
         try {
@@ -181,9 +180,9 @@ final class ClientTest extends TestCase
             'valid' => false,
             'detail' => 'The invoice violates 1 rule.',
             'data' => ['hasEmbeddedXml' => true, 'schemaValid' => true, 'schematronValid' => false, 'profile' => 'en16931'],
-            'errors' => [['rule' => 'BR-CO-15', 'layer' => 'en16931', 'line' => 88, 'message' => 'Total with VAT does not match.', 'btCodes' => ['BT-112'], 'fields' => ['totals.amountDueForPayment'], 'raw' => 'x']],
+            'errors' => [['rule' => 'BR-CO-15', 'layer' => 'en16931', 'line' => 88, 'message' => 'Total with VAT does not match.', 'fields' => ['totals.amountDueForPayment'], 'raw' => 'x']],
             'warnings' => [],
-            'report' => [['code' => 'BT-1', 'name' => 'Invoice number', 'section' => 'header', 'path' => 'invoiceNumber', 'value' => 'INV-1', 'isValid' => true, 'errors' => [], 'warnings' => []]],
+            'report' => [['name' => 'Invoice number', 'path' => 'invoiceNumber', 'value' => 'INV-1', 'isValid' => true, 'errors' => [], 'warnings' => []]],
         ]));
 
         $result = $client->validateZugferd(new File('%PDF-1.7 bytes', 'invoice.pdf'));
@@ -201,7 +200,7 @@ final class ClientTest extends TestCase
         self::assertSame('en16931', $result->data['profile']);
         self::assertSame('BR-CO-15', $result->errors[0]->rule);
         self::assertSame('en16931', $result->errors[0]->layer);
-        self::assertSame('BT-1', $result->report[0]['code']);
+        self::assertSame('invoiceNumber', $result->report[0]['path']);
     }
 
     public function testValidateXrechnungReadsFileFromPath(): void

@@ -53,7 +53,7 @@ Sign up at [invoicexml.com](https://invoicexml.com/account/signup) to start a 30
 
 ## Usage
 
-Invoices use the field names of the EN 16931 `InvoiceDocument` model from the [OpenAPI specification](https://api.invoicexml.com/v1/openapi). The [API explorer](https://api.invoicexml.com/v1/scalar/) shows every field with its business term (BT) code. Every method that takes a file accepts a path on disk or a `File` object.
+Invoices use the field names of the EN 16931 `InvoiceDocument` model from the [OpenAPI specification](https://api.invoicexml.com/v1/openapi). The [API explorer](https://api.invoicexml.com/v1/scalar/) documents every field. Every method that takes a file accepts a path on disk or a `File` object.
 
 ### Create a ZUGFeRD PDF
 
@@ -126,10 +126,10 @@ Each finding carries the following fields:
 - `rule` is the rule identifier, for example `BR-DE-15`.
 - `layer` is `xsd`, `en16931` or `cius`. A `cius` finding means the invoice is valid EN 16931 but misses a German requirement.
 - `message` is a plain-language explanation.
-- `btCodes` and `fields` name the business terms and invoice fields involved.
+- `fields` names the invoice fields involved, for example `seller.name`.
 - `line` and `raw` give the XML line and the verbatim validator output.
 
-`$result->data` holds the verdict details, such as `schemaValid`, `schematronValid` and `profile`. `$result->report` is the field report: one row per business term with its value and its findings.
+`$result->data` holds the verdict details, such as `schemaValid`, `schematronValid` and `profile`. `$result->report` is the field report: one row per invoice field with its value and its findings.
 
 ### Embed XML into an existing PDF
 

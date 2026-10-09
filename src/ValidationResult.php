@@ -7,9 +7,6 @@ namespace InvoiceXml\ZugferdXrechnung;
 /**
  * Result of a validation call. The API answers HTTP 200 for valid and invalid
  * documents alike, so check $valid.
- *
- * @phpstan-type ReportFinding array{rule: string, message: string}
- * @phpstan-type ReportRow array{code: string, name: string, section: string, path: string, value: ?string, isValid: bool, errors: list<ReportFinding>, warnings: list<ReportFinding>}
  */
 final class ValidationResult
 {
@@ -19,7 +16,7 @@ final class ValidationResult
      * @param array<string, mixed> $data     Verdict details, for example schemaValid, schematronValid, conformanceLevel and profile.
      * @param list<Finding>        $errors   Rule violations. Empty when valid.
      * @param list<Finding>        $warnings Advisory findings that do not fail the document.
-     * @param list<ReportRow>      $report   Field report: one row per EN 16931 business term with its value and findings.
+     * @param list<array<string, mixed>> $report Field report: one row per invoice field with its value and its findings.
      * @param array<string, mixed> $body     The complete decoded response body.
      */
     public function __construct(

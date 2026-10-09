@@ -15,18 +15,18 @@ final class Finding
      * @param string|null  $layer   Rule layer that produced the finding: "xsd", "en16931" or "cius".
      * @param int|null     $line    Line in the XML document, when known.
      * @param string       $message Plain-language explanation of the finding.
-     * @param list<string> $btCodes EN 16931 business terms involved, for example ["BT-10"].
      * @param list<string> $fields  JSON paths of the affected invoice fields, for example ["buyerReference"].
      * @param string|null  $raw     The verbatim validator output.
+     * @param array<string, mixed> $data The complete decoded finding.
      */
     public function __construct(
         public readonly ?string $rule,
         public readonly ?string $layer,
         public readonly ?int $line,
         public readonly string $message,
-        public readonly array $btCodes = [],
         public readonly array $fields = [],
         public readonly ?string $raw = null,
+        public readonly array $data = [],
     ) {
     }
 
@@ -38,9 +38,9 @@ final class Finding
             isset($data['layer']) ? (string) $data['layer'] : null,
             isset($data['line']) ? (int) $data['line'] : null,
             (string) ($data['message'] ?? ''),
-            array_values(array_map('strval', (array) ($data['btCodes'] ?? []))),
             array_values(array_map('strval', (array) ($data['fields'] ?? []))),
             isset($data['raw']) ? (string) $data['raw'] : null,
+            $data,
         );
     }
 
