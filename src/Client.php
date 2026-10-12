@@ -41,7 +41,7 @@ final class Client
     private readonly \Closure $sleep;
 
     /**
-     * @param string                       $apiKey         API key from https://invoicexml.com/account
+     * @param string                       $apiKey         API key from https://www.invoicexml.com/account
      * @param ClientInterface|null         $httpClient     Any PSR-18 client. Defaults to Guzzle.
      * @param RequestFactoryInterface|null $requestFactory PSR-17 request factory. Defaults to Guzzle's.
      * @param StreamFactoryInterface|null  $streamFactory  PSR-17 stream factory. Defaults to Guzzle's.

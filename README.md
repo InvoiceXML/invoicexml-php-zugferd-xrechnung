@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml/badge.svg)](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml)
 
-A thin PHP client for the [InvoiceXML API](https://invoicexml.com) that creates, validates, embeds, renders and reads German e-invoices:
+A thin PHP client for the [InvoiceXML API](https://www.invoicexml.com) that creates, validates, embeds, renders and reads German e-invoices:
 
 - **ZUGFeRD**: hybrid PDF/A-3 invoices with embedded EN 16931 CII XML, for B2B.
 - **XRechnung**: XML invoices in UBL or CII syntax checked against the KoSIT rules, for the public sector.
@@ -49,7 +49,7 @@ The result is a ZUGFeRD PDF/A-3 in the EN 16931 profile, already validated again
 
 ## Get an API key
 
-Sign up at [invoicexml.com](https://invoicexml.com/account/signup) to start a 30-day free trial with 100 credits. No credit card is needed. Plans are listed on the [pricing page](https://invoicexml.com/pricing).
+Sign up at [invoicexml.com](https://www.invoicexml.com/account/signup) to start a 30-day free trial with 100 credits. No credit card is needed. Plans are listed on the [pricing page](https://www.invoicexml.com/pricing).
 
 ## Usage
 
@@ -173,7 +173,7 @@ try {
 }
 ```
 
-`errorCode` is a stable numeric code, documented under [error handling](https://invoicexml.com/docs/error-handling).
+`errorCode` is a stable numeric code, documented under [error handling](https://www.invoicexml.com/docs/error-handling).
 
 When too many requests for one API key run at the same time, the API answers 429 with a `Retry-After` header. The client waits that long and resends the request, up to 3 times. A request answered with 429 was not processed and not billed, so resending never creates duplicates. If the retries are used up, a `TooManyRequestsException` carries `retryAfter` in seconds. Set `maxRetries: 0` to handle 429 yourself.
 
@@ -191,11 +191,11 @@ $client = new Client(
 
 ## Links
 
-- [Documentation](https://invoicexml.com/docs)
+- [Documentation](https://www.invoicexml.com/docs)
 - [API explorer](https://api.invoicexml.com/v1/scalar/)
-- [ZUGFeRD and XRechnung in PHP guide](https://invoicexml.com/blog/zugferd-xrechnung-php)
+- [ZUGFeRD and XRechnung in PHP guide](https://www.invoicexml.com/blog/zugferd-xrechnung-php)
 - [Factur-X package for PHP](https://github.com/InvoiceXML/invoicexml-php-facturx)
-- [Contact and support](https://invoicexml.com/contact)
+- [Contact and support](https://www.invoicexml.com/contact)
 
 ## License
 

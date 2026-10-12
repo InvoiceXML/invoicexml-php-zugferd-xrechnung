@@ -21,15 +21,15 @@
         "leitweg-id",
         "validation"
     ],
-    "homepage": "https://invoicexml.com",
+    "homepage": "https://www.invoicexml.com",
     "authors": [
         {
             "name": "InvoiceXML",
-            "homepage": "https://invoicexml.com"
+            "homepage": "https://www.invoicexml.com"
         }
     ],
     "support": {
-        "docs": "https://invoicexml.com/docs",
+        "docs": "https://www.invoicexml.com/docs",
         "issues": "https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/issues",
         "source": "https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung"
     },

@@ -12,7 +12,7 @@ namespace InvoiceXml\ZugferdXrechnung;
 class ApiException extends \RuntimeException
 {
     /**
-     * @param int|null             $errorCode Stable numeric code, see https://invoicexml.com/docs/error-handling
+     * @param int|null             $errorCode Stable numeric code, see https://www.invoicexml.com/docs/error-handling
      * @param list<Finding>        $errors    Violated rules or invalid request fields.
      * @param list<Finding>        $warnings  Advisory findings.
      * @param array<string, mixed> $body      The complete decoded problem document.
