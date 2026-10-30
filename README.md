@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml/badge.svg)](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml)
 
-A thin PHP client for the [InvoiceXML API](https://www.invoicexml.com) that creates, validates, embeds, renders and reads German e-invoices:
+A thin PHP client for the [InvoiceXML API](https://www.invoicexml.com) that creates, validates, embeds, renders, emails and reads German e-invoices:
 
 - **ZUGFeRD**: hybrid PDF/A-3 invoices with embedded EN 16931 CII XML, for B2B.
 - **XRechnung**: XML invoices in UBL or CII syntax checked against the KoSIT rules, for the public sector.
@@ -43,13 +43,13 @@ The result is a ZUGFeRD PDF/A-3 in the EN 16931 profile, already validated again
 
 - **Rule sets updated on their legal effective dates.** New KoSIT and FeRD releases go live server-side on the day they take effect. You never update a package or redeploy to stay compliant.
 - **Validated before delivery.** Every created or embedded invoice passes the full rule set before it is returned. Data that cannot produce a compliant invoice is refused with the violated rules, so nothing broken reaches a customer.
-- **Zero data retention.** Documents are processed in memory and discarded when the response is returned. Your data is never used for AI training.
+- **Zero data retention.** Documents are processed in memory and discarded when the response is returned. Your data is never used for AI training. When you email an invoice, it goes to our email service for delivery, and we keep no copy.
 - **Processing in Frankfurt.** All processing runs in Frankfurt, Germany.
 - **Integration assistance.** When a rule finding needs a human explanation, a person who knows the rule sets answers your support request.
 
 ## Get an API key
 
-Sign up at [invoicexml.com](https://www.invoicexml.com/account/signup) to start a 30-day free trial with 100 credits. No credit card is needed. Plans are listed on the [pricing page](https://www.invoicexml.com/pricing).
+Sign up at [www.invoicexml.com](https://www.invoicexml.com/account/signup) to start a 30-day free trial with 100 credits. No credit card is needed. Plans are listed on the [pricing page](https://www.invoicexml.com/pricing).
 
 ## Usage
 
@@ -144,6 +144,47 @@ The XML is validated before embedding. Pass `skipValidation: true` to embed it a
 ```php
 $preview = $client->renderXrechnungToPdf('xrechnung.xml', language: 'de');
 ```
+
+### Send an invoice by email
+
+The API creates and validates the invoice like the create methods, then sends the file as a real email from your own address. The sender must be on a domain added and verified on the Verified email domains page of the dashboard.
+
+```php
+$result = $client->emailZugferd($invoice, [
+    'from'     => 'billing@acme.example',    // required
+    'to'       => 'accounts@globex.example', // required, one address
+    'fromName' => 'Acme Billing',
+    'cc'       => ['anna@globex.example'],   // cc and bcc hold at most 2 addresses together
+    'bcc'      => ['archive@acme.example'],
+    'replyTo'  => 'support@acme.example',
+    'subject'  => 'Your invoice INV-2026-00045',
+    'message'  => "Hello Anna,\n\nyour invoice is attached.",
+], ['language' => 'de']);
+
+echo $result->status, ' ', $result->messageId;
+```
+
+`emailXrechnung($invoice, $email, $options)` sends an XRechnung the same way. To send a PDF and XML you already have, use `emailEmbeddedZugferd()`, which always validates the XML:
+
+```php
+$result = $client->emailEmbeddedZugferd('layout.pdf', 'factur-x.xml', [
+    'from' => 'billing@acme.example',
+    'to'   => 'accounts@globex.example',
+]);
+```
+
+No file comes back. `accepted` means the email was handed over for delivery, not yet that the recipient's mail server received it. Keep `messageId`: it identifies the email when you ask about a delivery later.
+
+A refused email throws `ApiException` with one of these `errorCode` values, and 4020, 4021 and 4022 are not billed:
+
+- `4020`: your plan does not include email delivery, see the [pricing page](https://www.invoicexml.com/pricing).
+- `4021`: email sending is disabled or paused for your account.
+- `4022`: the sender domain has not finished verification.
+- `4002`: a field was refused, for example a bad address, a sender domain that is not on your account, or too many copies. `$e->errors` names the fields.
+
+Only a 429 is retried, because nothing was sent. A timeout or connection failure throws the HTTP client's own exception rather than `ApiException`, and the email may already have gone out, so check before you send it again. The same goes for a 503 with error code 4023, which can happen while the email is being sent.
+
+The full guide is at [Send an invoice by email](https://www.invoicexml.com/docs/api/create/zugferd/email).
 
 ### Read incoming invoices
 
