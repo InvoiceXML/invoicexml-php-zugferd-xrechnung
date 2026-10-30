@@ -550,6 +550,308 @@ final class ClientTest extends TestCase
         self::assertSame('invoice.pdf', $file->filename);
     }
 
+    public function testRenderXrechnungSendsQrCodeSwitchAsText(): void
+    {
+        $client = $this->client(self::pdfResponse('invoice.pdf'), self::pdfResponse('invoice.pdf'));
+
+        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: true);
+        self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\ntrue\r\n", (string) $this->lastRequest()->getBody());
+
+        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: false);
+        self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\nfalse\r\n", (string) $this->lastRequest()->getBody());
+    }
+
+    public function testRenderOmitsUnsetOptions(): void
+    {
+        $client = $this->client(self::pdfResponse('invoice.pdf'), self::pdfResponse('invoice.pdf'));
+
+        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'));
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame(1, substr_count($body, 'form-data; name="'));
+        self::assertStringContainsString('name="file"; filename="x.xml"', $body);
+
+        $client->renderCiiToPdf(new File('<rsm:CrossIndustryInvoice/>', 'c.xml'));
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame(1, substr_count($body, 'form-data; name="'));
+        self::assertStringContainsString('name="file"; filename="c.xml"', $body);
+    }
+
+    public function testRenderCiiPostsToItsRouteWithEveryOption(): void
+    {
+        $client = $this->client(self::pdfResponse('invoice.pdf'));
+
+        $file = $client->renderCiiToPdf(new File('<rsm:CrossIndustryInvoice/>', 'c.xml'), 'fr', 'https://example.com/logo.png', true);
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame('https://api.invoicexml.com/v1/render/cii/to/pdf', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString("name=\"language\"\r\n\r\nfr\r\n", $body);
+        self::assertStringContainsString("name=\"logoUrl\"\r\n\r\nhttps://example.com/logo.png\r\n", $body);
+        self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\ntrue\r\n", $body);
+        self::assertSame('invoice.pdf', $file->filename);
+        self::assertSame('application/pdf', $file->contentType);
+    }
+
+    public function testConvertToXmlPostsTheFileAndReturnsTheXml(): void
+    {
+        $routes = [
+            'convertZugferdToUbl' => 'zugferd/to/ubl',
+            'convertZugferdToCii' => 'zugferd/to/cii',
+            'convertXrechnungToUbl' => 'xrechnung/to/ubl',
+            'convertXrechnungToCii' => 'xrechnung/to/cii',
+            'convertUblToXrechnung' => 'ubl/to/xrechnung',
+            'convertCiiToXrechnung' => 'cii/to/xrechnung',
+        ];
+
+        foreach ($routes as $method => $route) {
+            $client = $this->client(new Response(200, ['Content-Type' => 'application/xml'], '<Invoice/>'));
+
+            $file = $client->{$method}(new File('<in/>', 'in.xml'), validationLanguage: 'de');
+
+            $body = (string) $this->lastRequest()->getBody();
+            self::assertSame("https://api.invoicexml.com/v1/convert/{$route}", (string) $this->lastRequest()->getUri());
+            self::assertStringContainsString('name="file"; filename="in.xml"', $body);
+            self::assertStringContainsString("name=\"validationLanguage\"\r\n\r\nde\r\n", $body);
+            self::assertStringNotContainsString('name="language"', $body);
+            self::assertSame('<Invoice/>', $file->contents);
+            self::assertSame('application/xml', $file->contentType);
+        }
+    }
+
+    public function testConvertToZugferdSendsLanguageAndValidationLanguage(): void
+    {
+        $routes = [
+            'convertCiiToZugferd' => 'cii/to/zugferd',
+            'convertUblToZugferd' => 'ubl/to/zugferd',
+            'convertXrechnungToZugferd' => 'xrechnung/to/zugferd',
+        ];
+
+        foreach ($routes as $method => $route) {
+            $client = $this->client(self::pdfResponse());
+
+            $file = $client->{$method}(new File('<in/>', 'in.xml'), 'de', 'fr');
+
+            $body = (string) $this->lastRequest()->getBody();
+            self::assertSame("https://api.invoicexml.com/v1/convert/{$route}", (string) $this->lastRequest()->getUri());
+            self::assertStringContainsString("name=\"language\"\r\n\r\nde\r\n", $body);
+            self::assertStringContainsString("name=\"validationLanguage\"\r\n\r\nfr\r\n", $body);
+            self::assertSame('invoice-zugferd-INV-1.pdf', $file->filename);
+        }
+    }
+
+    public function testConvertOmitsUnsetOptions(): void
+    {
+        $sends = [
+            static fn (Client $client) => $client->convertZugferdToUbl(new File('%PDF', 'a.pdf')),
+            static fn (Client $client) => $client->convertCiiToZugferd(new File('<x/>', 'a.xml')),
+        ];
+
+        foreach ($sends as $send) {
+            $client = $this->client(self::pdfResponse());
+
+            $send($client);
+
+            self::assertSame(1, substr_count((string) $this->lastRequest()->getBody(), 'form-data; name="'));
+        }
+    }
+
+    public function testConvertUsesAFallbackFilenameWithoutContentDisposition(): void
+    {
+        $client = $this->client(new Response(200, ['Content-Type' => 'application/xml'], '<Invoice/>'));
+
+        self::assertSame('invoice-xrechnung.xml', $client->convertCiiToXrechnung(new File('<x/>', 'a.xml'))->filename);
+    }
+
+    public function testFailedConversionThrowsWithFindings(): void
+    {
+        $client = $this->client(self::jsonResponse([
+            'title' => 'Invoice validation failed',
+            'status' => 400,
+            'errorCode' => 4002,
+            'errors' => [['rule' => 'BR-DE-15', 'layer' => 'cius', 'line' => null, 'message' => 'Die Leitweg-ID fehlt.', 'fields' => ['buyerReference'], 'raw' => null]],
+        ], 400, ['Content-Type' => 'application/problem+json']));
+
+        try {
+            $client->convertUblToXrechnung(new File('<Invoice/>', 'in.xml'), 'de');
+            self::fail('Expected ApiException');
+        } catch (ApiException $e) {
+            self::assertSame(400, $e->statusCode);
+            self::assertSame(4002, $e->errorCode);
+            self::assertSame('BR-DE-15', $e->errors[0]->rule);
+        }
+    }
+
+    public function testValidateZugferdReportReturnsPdfAndValidVerdict(): void
+    {
+        $client = $this->client(new Response(200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="in-report.pdf"',
+            'X-Invoice-Valid' => 'true',
+        ], '%PDF-1.7 report'));
+
+        $report = $client->validateZugferdReport(new File('%PDF', 'in.pdf'), 'de');
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame('https://api.invoicexml.com/v1/validate/zugferd/report', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString('name="file"; filename="in.pdf"', $body);
+        self::assertStringContainsString("name=\"validationLanguage\"\r\n\r\nde\r\n", $body);
+        self::assertTrue($report->valid);
+        self::assertSame('%PDF-1.7 report', $report->file->contents);
+        self::assertSame('in-report.pdf', $report->file->filename);
+        self::assertSame('application/pdf', $report->file->contentType);
+    }
+
+    public function testValidateXrechnungReportReturnsFailedVerdictAsResult(): void
+    {
+        $client = $this->client(new Response(200, ['Content-Type' => 'application/pdf', 'X-Invoice-Valid' => 'false'], '%PDF-1.7 report'));
+
+        $report = $client->validateXrechnungReport(new File('<Invoice/>', 'x.xml'));
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame('https://api.invoicexml.com/v1/validate/xrechnung/report', (string) $this->lastRequest()->getUri());
+        self::assertStringNotContainsString('validationLanguage', $body);
+        self::assertSame(1, substr_count($body, 'form-data; name="'));
+        self::assertFalse($report->valid);
+        self::assertSame('%PDF-1.7 report', $report->file->contents);
+        self::assertSame('validation-report.pdf', $report->file->filename);
+    }
+
+    public function testValidateReportWithoutVerdictHeaderHasNullValid(): void
+    {
+        $client = $this->client(new Response(200, ['Content-Type' => 'application/pdf'], '%PDF-1.7 report'));
+
+        $report = $client->validateZugferdReport(new File('%PDF', 'in.pdf'));
+
+        self::assertNull($report->valid);
+        self::assertSame('%PDF-1.7 report', $report->file->contents);
+    }
+
+    public function testValidateReportWithMalformedFileThrows(): void
+    {
+        $client = $this->client(self::jsonResponse([
+            'title' => 'Invalid XML',
+            'status' => 400,
+            'detail' => 'The uploaded file is not well-formed XML.',
+            'errorCode' => 4001,
+        ], 400, ['Content-Type' => 'application/problem+json']));
+
+        try {
+            $client->validateXrechnungReport(new File('not xml', 'x.xml'));
+            self::fail('Expected ApiException');
+        } catch (ApiException $e) {
+            self::assertSame(400, $e->statusCode);
+            self::assertSame(4001, $e->errorCode);
+            self::assertSame('Invalid XML', $e->title);
+        }
+    }
+
+    public function testTransformToZugferdSendsEveryOption(): void
+    {
+        $client = $this->client(self::pdfResponse());
+
+        $file = $client->transformToZugferd(new File('%PDF', 'scan.pdf'), 'auto', true, true, 'de');
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame('https://api.invoicexml.com/v1/transform/to/zugferd', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString('name="file"; filename="scan.pdf"', $body);
+        self::assertStringContainsString("name=\"language\"\r\n\r\nauto\r\n", $body);
+        self::assertStringContainsString("name=\"preserveOriginalPdf\"\r\n\r\ntrue\r\n", $body);
+        self::assertStringContainsString("name=\"includeAdvancedProperties\"\r\n\r\ntrue\r\n", $body);
+        self::assertStringContainsString("name=\"validationLanguage\"\r\n\r\nde\r\n", $body);
+        self::assertSame('invoice-zugferd-INV-1.pdf', $file->filename);
+    }
+
+    public function testTransformToZugferdReallySendsIncludeAdvancedPropertiesFalse(): void
+    {
+        $client = $this->client(self::pdfResponse());
+
+        $client->transformToZugferd(new File('%PDF', 'scan.pdf'), includeAdvancedProperties: false);
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertStringContainsString("name=\"includeAdvancedProperties\"\r\n\r\nfalse\r\n", $body);
+        self::assertSame(2, substr_count($body, 'form-data; name="'));
+    }
+
+    public function testTransformToZugferdOmitsUnsetOptions(): void
+    {
+        $client = $this->client(self::pdfResponse());
+
+        $client->transformToZugferd(new File('%PDF', 'scan.pdf'));
+
+        self::assertSame(1, substr_count((string) $this->lastRequest()->getBody(), 'form-data; name="'));
+    }
+
+    public function testTransformToXrechnungSendsBuyerReference(): void
+    {
+        $client = $this->client(new Response(200, ['Content-Type' => 'application/xml'], '<Invoice/>'));
+
+        $file = $client->transformToXrechnung(new File('%PDF', 'scan.pdf'), '08111-00234-45', 'de');
+
+        $body = (string) $this->lastRequest()->getBody();
+        self::assertSame('https://api.invoicexml.com/v1/transform/to/xrechnung', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString("name=\"buyerReference\"\r\n\r\n08111-00234-45\r\n", $body);
+        self::assertStringContainsString("name=\"validationLanguage\"\r\n\r\nde\r\n", $body);
+        self::assertStringNotContainsString('name="language"', $body);
+        self::assertSame('invoice-xrechnung.xml', $file->filename);
+    }
+
+    public function testTransformToXrechnungOmitsUnsetValidationLanguage(): void
+    {
+        $client = $this->client(new Response(200, ['Content-Type' => 'application/xml'], '<Invoice/>'));
+
+        $client->transformToXrechnung(new File('%PDF', 'scan.pdf'), '08111-00234-45');
+
+        self::assertStringNotContainsString('validationLanguage', (string) $this->lastRequest()->getBody());
+    }
+
+    public function testTransformMakesOneRequestOn429AndThrows(): void
+    {
+        $limited = static fn (): Response => self::jsonResponse(
+            ['title' => 'Too Many Requests', 'status' => 429, 'errorCode' => 4019],
+            429,
+            ['Retry-After' => '3'],
+        );
+        $client = $this->client($limited(), $limited());
+        $scan = new File('%PDF', 'scan.pdf');
+
+        foreach ([
+            static fn () => $client->transformToZugferd($scan),
+            static fn () => $client->transformToXrechnung($scan, '08111-00234-45'),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('Expected TooManyRequestsException');
+            } catch (TooManyRequestsException $e) {
+                self::assertSame(429, $e->statusCode);
+                self::assertSame(3, $e->retryAfter);
+                self::assertSame(4019, $e->errorCode);
+            }
+        }
+
+        self::assertSame([], $this->sleeps);
+        self::assertCount(2, $this->history);
+        self::assertSame('https://api.invoicexml.com/v1/transform/to/zugferd', (string) $this->history[0]['request']->getUri());
+        self::assertSame('https://api.invoicexml.com/v1/transform/to/xrechnung', (string) $this->history[1]['request']->getUri());
+    }
+
+    public function testTransformToXrechnungRefusesABlankBuyerReference(): void
+    {
+        $client = $this->client();
+        $scan = new File('%PDF', 'scan.pdf');
+
+        foreach (['', '   '] as $buyerReference) {
+            try {
+                $client->transformToXrechnung($scan, $buyerReference);
+                self::fail('Expected InvalidArgumentException');
+            } catch (\InvalidArgumentException) {
+                self::assertSame([], $this->history);
+            }
+        }
+
+        // The parameter is typed string, so PHP itself refuses null.
+        $this->expectException(\TypeError::class);
+        $client->transformToXrechnung($scan, null);
+    }
+
     public function testExtractJsonReturnsInvoiceEnvelope(): void
     {
         $client = $this->client(self::jsonResponse(['invoice' => self::invoice()]));
@@ -601,6 +903,36 @@ final class ClientTest extends TestCase
             (string) $this->history[1]['request']->getBody(),
         );
         self::assertSame('%PDF-1.7 test', $file->contents);
+    }
+
+    public function testRenderConvertAndReportRetryAfter429(): void
+    {
+        $limited = static fn (): Response => self::jsonResponse(['status' => 429, 'errorCode' => 4019], 429, ['Retry-After' => '1']);
+        $client = $this->client(
+            $limited(),
+            self::pdfResponse(),
+            $limited(),
+            new Response(200, ['Content-Type' => 'application/xml'], '<Invoice/>'),
+            $limited(),
+            new Response(200, ['Content-Type' => 'application/pdf', 'X-Invoice-Valid' => 'true'], '%PDF-1.7 report'),
+        );
+
+        $client->renderCiiToPdf(new File('<x/>', 'a.xml'));
+        $client->convertZugferdToUbl(new File('%PDF', 'a.pdf'));
+        $client->validateZugferdReport(new File('%PDF', 'a.pdf'));
+
+        self::assertSame([1, 1, 1], $this->sleeps);
+        self::assertSame(
+            [
+                '/v1/render/cii/to/pdf',
+                '/v1/render/cii/to/pdf',
+                '/v1/convert/zugferd/to/ubl',
+                '/v1/convert/zugferd/to/ubl',
+                '/v1/validate/zugferd/report',
+                '/v1/validate/zugferd/report',
+            ],
+            array_map(static fn (array $entry): string => $entry['request']->getUri()->getPath(), $this->history),
+        );
     }
 
     public function testThrowsTooManyRequestsWhenRetriesAreUsedUp(): void

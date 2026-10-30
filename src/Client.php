@@ -55,7 +55,7 @@ final class Client
      * @param ClientInterface|null         $httpClient     Any PSR-18 client. Defaults to Guzzle.
      * @param RequestFactoryInterface|null $requestFactory PSR-17 request factory. Defaults to Guzzle's.
      * @param StreamFactoryInterface|null  $streamFactory  PSR-17 stream factory. Defaults to Guzzle's.
-     * @param int                          $maxRetries     How often a 429 is retried after waiting Retry-After seconds. 0 disables retries.
+     * @param int                          $maxRetries     How often a 429 is retried after waiting Retry-After seconds, on every call except transform. 0 disables retries.
      * @param (callable(int): void)|null   $sleep          Wait function used between retries, in seconds. Defaults to sleep().
      */
     public function __construct(
@@ -159,6 +159,32 @@ final class Client
     }
 
     /**
+     * Validates a ZUGFeRD PDF like validateZugferd() and returns a printable PDF report plus
+     * the verdict. A failed verdict is a normal result, not an exception. Problems with the
+     * upload itself, such as a missing or malformed file, throw ApiException.
+     *
+     * @param string|File $pdf                Path to the PDF, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the whole report.
+     */
+    public function validateZugferdReport(string|File $pdf, ?string $validationLanguage = null): ValidationReport
+    {
+        return $this->report($this->postMultipart('/v1/validate/zugferd/report', ['file' => $pdf], self::formFields(['validationLanguage' => $validationLanguage])));
+    }
+
+    /**
+     * Validates an XRechnung XML file like validateXrechnung() and returns a printable PDF
+     * report plus the verdict. A failed verdict is a normal result, not an exception. Problems
+     * with the upload itself, such as a missing or malformed file, throw ApiException.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the whole report.
+     */
+    public function validateXrechnungReport(string|File $xml, ?string $validationLanguage = null): ValidationReport
+    {
+        return $this->report($this->postMultipart('/v1/validate/xrechnung/report', ['file' => $xml], self::formFields(['validationLanguage' => $validationLanguage])));
+    }
+
+    /**
      * Embeds an existing CII XML into an existing PDF and returns a ZUGFeRD PDF/A-3.
      * The XML is validated before embedding unless $skipValidation is true.
      *
@@ -191,15 +217,204 @@ final class Client
     /**
      * Renders an XRechnung XML (UBL or CII) as a human-readable PDF.
      *
-     * @param string|File $xml      Path to the XML, or a File.
-     * @param string|null $language "en", "de" or "fr". Defaults to "en".
-     * @param string|null $logoUrl  Public PNG or JPEG URL printed on the PDF.
+     * @param string|File $xml           Path to the XML, or a File.
+     * @param string|null $language      "en", "de" or "fr". Defaults to "en".
+     * @param string|null $logoUrl       Public PNG or JPEG URL printed on the PDF.
+     * @param bool|null   $includeQrCode True prints the payment QR code on the PDF.
      */
-    public function renderXrechnungToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null): File
+    public function renderXrechnungToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null, ?bool $includeQrCode = null): File
     {
-        $fields = array_filter(['language' => $language, 'logoUrl' => $logoUrl], static fn (?string $v): bool => $v !== null);
+        $fields = self::formFields(['language' => $language, 'logoUrl' => $logoUrl, 'includeQrCode' => $includeQrCode]);
 
         return $this->file($this->postMultipart('/v1/render/xrechnung/to/pdf', ['file' => $xml], $fields), 'invoice.pdf');
+    }
+
+    /**
+     * Renders a CII XML as a human-readable PDF.
+     *
+     * @param string|File $xml           Path to the XML, or a File.
+     * @param string|null $language      "en", "de" or "fr". Defaults to "en".
+     * @param string|null $logoUrl       Public PNG or JPEG URL printed on the PDF.
+     * @param bool|null   $includeQrCode True prints the payment QR code on the PDF.
+     */
+    public function renderCiiToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null, ?bool $includeQrCode = null): File
+    {
+        $fields = self::formFields(['language' => $language, 'logoUrl' => $logoUrl, 'includeQrCode' => $includeQrCode]);
+
+        return $this->file($this->postMultipart('/v1/render/cii/to/pdf', ['file' => $xml], $fields), 'invoice.pdf');
+    }
+
+    /**
+     * Converts the XML embedded in a ZUGFeRD PDF to UBL.
+     *
+     * @param string|File $pdf                Path to the PDF, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertZugferdToUbl(string|File $pdf, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/zugferd/to/ubl', $pdf, 'invoice-ubl.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts the XML embedded in a ZUGFeRD PDF to plain CII.
+     *
+     * @param string|File $pdf                Path to the PDF, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertZugferdToCii(string|File $pdf, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/zugferd/to/cii', $pdf, 'invoice-cii.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts an XRechnung XML (UBL or CII) to plain EN 16931 UBL.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertXrechnungToUbl(string|File $xml, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/xrechnung/to/ubl', $xml, 'invoice-ubl.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts an XRechnung XML (UBL or CII) to plain EN 16931 CII.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertXrechnungToCii(string|File $xml, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/xrechnung/to/cii', $xml, 'invoice-cii.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts a UBL XML to an XRechnung in UBL syntax.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertUblToXrechnung(string|File $xml, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/ubl/to/xrechnung', $xml, 'invoice-xrechnung.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts a CII XML to an XRechnung in UBL syntax.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertCiiToXrechnung(string|File $xml, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/cii/to/xrechnung', $xml, 'invoice-xrechnung.xml', ['validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts a CII XML to a ZUGFeRD PDF/A-3.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $language           "en", "de" or "fr". Labels of the rendered PDF and default texts. Defaults to "en".
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertCiiToZugferd(string|File $xml, ?string $language = null, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/cii/to/zugferd', $xml, 'invoice-zugferd.pdf', ['language' => $language, 'validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts a UBL XML to a ZUGFeRD PDF/A-3.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $language           "en", "de" or "fr". Labels of the rendered PDF and default texts. Defaults to "en".
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertUblToZugferd(string|File $xml, ?string $language = null, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/ubl/to/zugferd', $xml, 'invoice-zugferd.pdf', ['language' => $language, 'validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Converts an XRechnung XML (UBL or CII) to a ZUGFeRD PDF/A-3.
+     *
+     * @param string|File $xml                Path to the XML, or a File.
+     * @param string|null $language           "en", "de" or "fr". Labels of the rendered PDF and default texts. Defaults to "en".
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a failed conversion.
+     *
+     * @throws ApiException when the result would not be compliant ($errors lists the violated rules)
+     */
+    public function convertXrechnungToZugferd(string|File $xml, ?string $language = null, ?string $validationLanguage = null): File
+    {
+        return $this->convert('/v1/convert/xrechnung/to/zugferd', $xml, 'invoice-zugferd.pdf', ['language' => $language, 'validationLanguage' => $validationLanguage]);
+    }
+
+    /**
+     * Reads a PDF invoice and returns a ZUGFeRD PDF/A-3. AI reads the PDF, so a person must
+     * check the result before it is used. A 429 on this method is not retried automatically,
+     * so wait for Retry-After before calling again if you want to retry.
+     *
+     * @param string|File $pdf                       Path to the PDF, or a File.
+     * @param string|null $language                  "en", "de", "fr" or "auto". Labels of the rendered PDF and default texts. Defaults to "auto", the language the invoice is written in.
+     * @param bool|null   $preserveOriginalPdf       True keeps the uploaded PDF as the visual layer and only embeds the XML. Earlier attachments and form fields are not kept.
+     * @param bool|null   $includeAdvancedProperties False leaves the electronic invoice details section out of the rendered PDF. On by default, ignored with $preserveOriginalPdf.
+     * @param string|null $validationLanguage        "en", "de" or "fr". Words the findings of a refused invoice.
+     *
+     * @throws ApiException when the invoice would not be compliant ($errors lists the violated rules)
+     */
+    public function transformToZugferd(
+        string|File $pdf,
+        ?string $language = null,
+        ?bool $preserveOriginalPdf = null,
+        ?bool $includeAdvancedProperties = null,
+        ?string $validationLanguage = null,
+    ): File {
+        $fields = self::formFields([
+            'language' => $language,
+            'preserveOriginalPdf' => $preserveOriginalPdf,
+            'includeAdvancedProperties' => $includeAdvancedProperties,
+            'validationLanguage' => $validationLanguage,
+        ]);
+
+        return $this->file($this->postMultipart('/v1/transform/to/zugferd', ['file' => $pdf], $fields, retryRateLimit: false), 'invoice-zugferd.pdf');
+    }
+
+    /**
+     * Reads a PDF invoice and returns an XRechnung XML. AI reads the PDF, so a person must
+     * check the result before it is used. A 429 on this method is not retried automatically,
+     * so wait for Retry-After before calling again if you want to retry.
+     *
+     * @param string|File $pdf                Path to the PDF, or a File.
+     * @param string      $buyerReference     The Leitweg-ID. Takes precedence over anything read from the PDF.
+     * @param string|null $validationLanguage "en", "de" or "fr". Words the findings of a refused invoice.
+     *
+     * @throws ApiException when the invoice would not be compliant ($errors lists the violated rules)
+     * @throws \InvalidArgumentException when $buyerReference is empty or only whitespace
+     */
+    public function transformToXrechnung(string|File $pdf, string $buyerReference, ?string $validationLanguage = null): File
+    {
+        if (trim($buyerReference) === '') {
+            throw new \InvalidArgumentException('A buyer reference is required.');
+        }
+
+        $fields = self::formFields(['buyerReference' => $buyerReference, 'validationLanguage' => $validationLanguage]);
+
+        return $this->file($this->postMultipart('/v1/transform/to/xrechnung', ['file' => $pdf], $fields, retryRateLimit: false), 'invoice-xrechnung.xml');
     }
 
     /**
@@ -306,10 +521,35 @@ final class Client
     }
 
     /**
+     * The optional form fields as sent. Null means not set and is never sent, so the API's
+     * default stays in charge. A bool goes out as the text true or false.
+     *
+     * @param array<string, string|bool|null> $fields
+     * @return array<string, string>
+     */
+    private static function formFields(array $fields): array
+    {
+        $sent = [];
+        foreach ($fields as $name => $value) {
+            if ($value !== null) {
+                $sent[$name] = is_bool($value) ? ($value ? 'true' : 'false') : $value;
+            }
+        }
+
+        return $sent;
+    }
+
+    /** @param array<string, string|null> $fields */
+    private function convert(string $path, string|File $file, string $fallbackName, array $fields): File
+    {
+        return $this->file($this->postMultipart($path, ['file' => $file], self::formFields($fields)), $fallbackName);
+    }
+
+    /**
      * @param array<string, string|File>         $files
      * @param array<string, string|list<string>> $fields A list value is sent as one repeated field per item.
      */
-    private function postMultipart(string $path, array $files, array $fields = []): ResponseInterface
+    private function postMultipart(string $path, array $files, array $fields = [], bool $retryRateLimit = true): ResponseInterface
     {
         $boundary = 'invoicexml-' . bin2hex(random_bytes(12));
         $body = '';
@@ -333,10 +573,10 @@ final class Client
 
         $body .= "--{$boundary}--\r\n";
 
-        return $this->send($path, 'multipart/form-data; boundary=' . $boundary, $body);
+        return $this->send($path, 'multipart/form-data; boundary=' . $boundary, $body, $retryRateLimit);
     }
 
-    private function send(string $path, string $contentType, string $body): ResponseInterface
+    private function send(string $path, string $contentType, string $body, bool $retryRateLimit = true): ResponseInterface
     {
         $attempt = 0;
 
@@ -351,7 +591,7 @@ final class Client
             $response = $this->http->sendRequest($request);
             $status = $response->getStatusCode();
 
-            if ($status === 429 && $attempt < $this->maxRetries) {
+            if ($status === 429 && $retryRateLimit && $attempt < $this->maxRetries) {
                 $attempt++;
                 ($this->sleep)($this->retryAfter($response));
                 continue;
@@ -427,6 +667,17 @@ final class Client
     private function emailResult(ResponseInterface $response): EmailResult
     {
         return EmailResult::fromArray($this->json($response));
+    }
+
+    private function report(ResponseInterface $response): ValidationReport
+    {
+        $valid = match (strtolower(trim($response->getHeaderLine('X-Invoice-Valid')))) {
+            'true' => true,
+            'false' => false,
+            default => null,
+        };
+
+        return new ValidationReport($this->file($response, 'validation-report.pdf'), $valid);
     }
 
     private function file(ResponseInterface $response, string $fallbackName): File

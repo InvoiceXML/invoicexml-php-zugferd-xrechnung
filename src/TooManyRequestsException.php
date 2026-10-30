@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace InvoiceXml\ZugferdXrechnung;
 
 /**
- * Thrown on HTTP 429 once the client's automatic retries are used up. A request
- * answered with 429 was not processed and not billed, so it is always safe to resend.
+ * Thrown on HTTP 429 once the client's automatic retries are used up, or on the first
+ * 429 of a transform call, which is not retried. A 429 is not billed.
  */
 final class TooManyRequestsException extends ApiException
 {

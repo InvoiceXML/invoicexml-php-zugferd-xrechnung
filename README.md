@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml/badge.svg)](https://github.com/InvoiceXML/invoicexml-php-zugferd-xrechnung/actions/workflows/tests.yml)
 
-A thin PHP client for the [InvoiceXML API](https://www.invoicexml.com) that creates, validates, embeds, renders, emails and reads German e-invoices:
+A thin PHP client for the [InvoiceXML API](https://www.invoicexml.com) that creates, validates, embeds, renders, converts, emails and reads German e-invoices:
 
 - **ZUGFeRD**: hybrid PDF/A-3 invoices with embedded EN 16931 CII XML, for B2B.
 - **XRechnung**: XML invoices in UBL or CII syntax checked against the KoSIT rules, for the public sector.
@@ -131,6 +131,22 @@ Each finding carries the following fields:
 
 `$result->data` holds the verdict details, such as `schemaValid`, `schematronValid` and `profile`. `$result->report` is the field report: one row per invoice field with its value and its findings.
 
+### Get a validation report as PDF
+
+```php
+$report = $client->validateZugferdReport('incoming.pdf', validationLanguage: 'de');   // or validateXrechnungReport('incoming.xml')
+
+$report->file->save('report.pdf');
+
+if ($report->valid === false) {
+    echo "The invoice failed validation, see the report.\n";
+}
+```
+
+`$report->file` is the printable report. `$report->valid` is `true` or `false`, or `null` if the response carried no verdict. A failed verdict is a normal result, not an exception. A missing or malformed file still throws `ApiException`. `validationLanguage` (`en`, `de` or `fr`) words the whole report.
+
+The reference pages are [ZUGFeRD report](https://www.invoicexml.com/docs/api/validate/zugferd/report) and [XRechnung report](https://www.invoicexml.com/docs/api/validate/xrechnung/report).
+
 ### Embed XML into an existing PDF
 
 ```php
@@ -139,11 +155,32 @@ $zugferd = $client->embedZugferd('layout.pdf', 'factur-x.xml');
 
 The XML is validated before embedding. Pass `skipValidation: true` to embed it as is.
 
-### Render an XRechnung as PDF
+### Render an invoice XML as PDF
 
 ```php
 $preview = $client->renderXrechnungToPdf('xrechnung.xml', language: 'de');
+$preview = $client->renderCiiToPdf('invoice.xml', logoUrl: 'https://example.com/logo.png', includeQrCode: true);
 ```
+
+`language` is `en`, `de` or `fr`. `logoUrl` prints your logo and `includeQrCode: true` prints the payment QR code. Rendering shows what the XML carries and does not validate it.
+
+The reference pages are [render XRechnung](https://www.invoicexml.com/docs/api/render/xrechnung/to/pdf) and [render CII](https://www.invoicexml.com/docs/api/render/cii/to/pdf).
+
+### Convert between formats
+
+```php
+$ubl = $client->convertZugferdToUbl('incoming.pdf');
+$pdf = $client->convertCiiToZugferd('invoice.xml', language: 'de');
+```
+
+Each route has its own method:
+
+- ZUGFeRD PDF to XML: [`convertZugferdToUbl()`](https://www.invoicexml.com/docs/api/convert/zugferd/to/ubl), [`convertZugferdToCii()`](https://www.invoicexml.com/docs/api/convert/zugferd/to/cii)
+- XRechnung to plain EN 16931 XML: [`convertXrechnungToUbl()`](https://www.invoicexml.com/docs/api/convert/xrechnung/to/ubl), [`convertXrechnungToCii()`](https://www.invoicexml.com/docs/api/convert/xrechnung/to/cii)
+- XML to XRechnung: [`convertUblToXrechnung()`](https://www.invoicexml.com/docs/api/convert/ubl/to/xrechnung), [`convertCiiToXrechnung()`](https://www.invoicexml.com/docs/api/convert/cii/to/xrechnung)
+- XML to ZUGFeRD PDF: [`convertCiiToZugferd()`](https://www.invoicexml.com/docs/api/convert/cii/to/zugferd), [`convertUblToZugferd()`](https://www.invoicexml.com/docs/api/convert/ubl/to/zugferd), [`convertXrechnungToZugferd()`](https://www.invoicexml.com/docs/api/convert/xrechnung/to/zugferd)
+
+The methods that return a ZUGFeRD PDF take `language` (`en`, `de` or `fr`) for the labels of the PDF. Every method takes `validationLanguage` (`en`, `de` or `fr`), which words the findings of a failed conversion. A failed conversion throws `ApiException`, and `$e->errors` lists the violated rules.
 
 ### Send an invoice by email
 
@@ -182,7 +219,7 @@ A refused email throws `ApiException` with one of these `errorCode` values, and 
 - `4022`: the sender domain has not finished verification.
 - `4002`: a field was refused, for example a bad address, a sender domain that is not on your account, or too many copies. `$e->errors` names the fields.
 
-Only a 429 is retried, because nothing was sent. A timeout or connection failure throws the HTTP client's own exception rather than `ApiException`, and the email may already have gone out, so check before you send it again. The same goes for a 503 with error code 4023, which can happen while the email is being sent.
+Only a 429 is retried, because nothing was sent. A timeout or connection failure throws the HTTP client's own exception rather than `ApiException`, and the email may already have gone out, so check before you send it again.
 
 The full guide is at [Send an invoice by email](https://www.invoicexml.com/docs/api/create/zugferd/email).
 
@@ -196,6 +233,19 @@ $zip = $client->extractAttachments('incoming.pdf');       // supporting document
 ```
 
 Extraction parses the embedded XML deterministically, with no AI involved. The returned invoice can go straight back into `createZugferd()` or `createXrechnung()`.
+
+### Transform a PDF invoice
+
+These methods take a PDF without embedded XML. AI reads the PDF, so a person must check the result before it is used.
+
+```php
+$zugferd = $client->transformToZugferd('invoice.pdf', language: 'de');
+$xml     = $client->transformToXrechnung('invoice.pdf', buyerReference: '08111-00234-45');
+```
+
+`transformToZugferd()` takes `language` (`en`, `de`, `fr` or `auto`, the default, which follows the language of the invoice). By default the PDF is rendered from the data that was read and ends with an electronic invoice details section, so that data can be checked on the pages. Pass `includeAdvancedProperties: false` to leave the section out, or `preserveOriginalPdf: true` to keep the uploaded PDF as the visual layer. `transformToXrechnung()` requires the Leitweg-ID in `buyerReference`. Both take `validationLanguage` (`en`, `de` or `fr`), which words the findings of a refused invoice. A 429 on these methods is not retried automatically, so wait for `Retry-After` before calling again if you want to retry.
+
+The reference pages are [transform to ZUGFeRD](https://www.invoicexml.com/docs/api/transform/to/zugferd) and [transform to XRechnung](https://www.invoicexml.com/docs/api/transform/to/xrechnung).
 
 ## Errors and rate limits
 
@@ -216,7 +266,7 @@ try {
 
 `errorCode` is a stable numeric code, documented under [error handling](https://www.invoicexml.com/docs/error-handling).
 
-When too many requests for one API key run at the same time, the API answers 429 with a `Retry-After` header. The client waits that long and resends the request, up to 3 times. A request answered with 429 was not processed and not billed, so resending never creates duplicates. If the retries are used up, a `TooManyRequestsException` carries `retryAfter` in seconds. Set `maxRetries: 0` to handle 429 yourself.
+When too many requests for one API key run at the same time, the API answers 429 with a `Retry-After` header. Every call except transform waits that long and resends the request, up to 3 times. A 429 is not billed. If the retries are used up, a `TooManyRequestsException` carries `retryAfter` in seconds. Set `maxRetries: 0` to handle 429 yourself.
 
 ## Configuration
 
