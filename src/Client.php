@@ -98,7 +98,7 @@ final class Client
      * Creates an XRechnung 3.0 XML invoice, UBL syntax by default or CII with ['syntax' => 'cii'].
      * XRechnung requires the Leitweg-ID in buyerReference, a seller contact and electronic addresses.
      *
-     * @param array<string, mixed> $invoice InvoiceDocument fields.
+     * @param array<string, mixed> $invoice InvoiceDocument fields, for example invoiceNumber, issueDate, currency, seller, buyer, lines.
      * @param array<string, mixed> $options InvoiceOptions, see the class description.
      *
      * @throws ApiException when the invoice would not be compliant ($errors lists the violated rules)
@@ -106,6 +106,41 @@ final class Client
     public function createXrechnung(array $invoice, array $options = []): File
     {
         return $this->file($this->postJson('/v1/create/xrechnung', $invoice, $options), 'invoice-xrechnung.xml');
+    }
+
+    /**
+     * Creates a plain EN 16931 CII XML invoice. The XML declares the EN 16931 profile, so it
+     * goes straight into embedZugferd() to turn your own PDF into a ZUGFeRD invoice.
+     *
+     * Options (all optional):
+     *  - language: "en", "de" or "fr". Default texts such as payment terms.
+     *
+     * @param array<string, mixed> $invoice InvoiceDocument fields, for example invoiceNumber, issueDate, currency, seller, buyer, lines.
+     * @param array<string, mixed> $options language, see above.
+     *
+     * @throws ApiException when the invoice would not be compliant ($errors lists the violated rules)
+     */
+    public function createCii(array $invoice, array $options = []): File
+    {
+        return $this->file($this->postJson('/v1/create/cii', $invoice, $options), 'invoice-cii.xml');
+    }
+
+    /**
+     * Creates a UBL XML invoice.
+     *
+     * Options (all optional):
+     *  - profile:  "en16931", "peppol-bis-3", "nlcius", "ehf", "xrechnung" or "pint". Picks the UBL
+     *              CustomizationID and the rule set the invoice is validated against. Defaults to "peppol-bis-3".
+     *  - language: "en", "de" or "fr". Default texts such as payment terms.
+     *
+     * @param array<string, mixed> $invoice InvoiceDocument fields, for example invoiceNumber, issueDate, currency, seller, buyer, lines.
+     * @param array<string, mixed> $options profile and language, see above.
+     *
+     * @throws ApiException when the invoice would not be compliant ($errors lists the violated rules)
+     */
+    public function createUbl(array $invoice, array $options = []): File
+    {
+        return $this->file($this->postJson('/v1/create/ubl', $invoice, $options), 'invoice-ubl.xml');
     }
 
     /**

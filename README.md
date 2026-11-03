@@ -155,6 +155,25 @@ $zugferd = $client->embedZugferd('layout.pdf', 'factur-x.xml');
 
 The XML is validated before embedding. Pass `skipValidation: true` to embed it as is.
 
+### Create a CII XML for your own PDF
+
+To keep your own invoice layout, create the CII XML from the invoice, then embed it into your PDF:
+
+```php
+$xml     = $client->createCii($invoice, ['language' => 'de']);
+$zugferd = $client->embedZugferd('layout.pdf', $xml);
+```
+
+The XML declares the EN 16931 profile, so `embedZugferd()` takes it as is. `language` (`en`, `de` or `fr`) words default texts such as payment terms. The reference page is [create CII](https://www.invoicexml.com/docs/api/create/cii).
+
+### Create a UBL invoice
+
+`createUbl()` takes the same invoice array, and `profile` picks the UBL profile and its rules (`peppol-bis-3` when omitted). The reference page is [create UBL](https://www.invoicexml.com/docs/api/create/ubl).
+
+```php
+$ubl = $client->createUbl($invoice, ['profile' => 'peppol-bis-3']);
+```
+
 ### Render an invoice XML as PDF
 
 ```php
