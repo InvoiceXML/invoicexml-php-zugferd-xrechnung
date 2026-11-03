@@ -658,58 +658,54 @@ final class ClientTest extends TestCase
         self::assertStringContainsString("name=\"email.subject\"\r\n\r\nRechnung für März\r\n", $body);
     }
 
-    public function testRenderXrechnungSendsLanguageAndLogo(): void
+    public function testRenderXmlPostsToItsRouteWithEveryOption(): void
     {
         $client = $this->client(self::pdfResponse('invoice.pdf'));
 
-        $file = $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'), 'de', 'https://example.com/logo.png');
+        $file = $client->renderXmlToPdf(new File('<Invoice/>', 'x.xml'), 'de', 'https://example.com/logo.png', true);
 
         $body = (string) $this->lastRequest()->getBody();
-        self::assertSame('https://api.invoicexml.com/v1/render/xrechnung/to/pdf', (string) $this->lastRequest()->getUri());
-        self::assertStringContainsString("name=\"language\"\r\n\r\nde", $body);
-        self::assertStringContainsString("name=\"logoUrl\"\r\n\r\nhttps://example.com/logo.png", $body);
+        self::assertSame('https://api.invoicexml.com/v1/render/xml/to/pdf', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString('name="file"; filename="x.xml"', $body);
+        self::assertStringContainsString("name=\"language\"\r\n\r\nde\r\n", $body);
+        self::assertStringContainsString("name=\"logoUrl\"\r\n\r\nhttps://example.com/logo.png\r\n", $body);
+        self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\ntrue\r\n", $body);
         self::assertSame('invoice.pdf', $file->filename);
+        self::assertSame('application/pdf', $file->contentType);
     }
 
-    public function testRenderXrechnungSendsQrCodeSwitchAsText(): void
+    public function testRenderXmlTakesEveryXmlFormatOnTheSameRoute(): void
     {
         $client = $this->client(self::pdfResponse('invoice.pdf'), self::pdfResponse('invoice.pdf'));
 
-        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: true);
+        $client->renderXmlToPdf(new File('<Invoice/>', 'xrechnung.xml'));
+        self::assertSame('https://api.invoicexml.com/v1/render/xml/to/pdf', (string) $this->lastRequest()->getUri());
+
+        $client->renderXmlToPdf(new File('<rsm:CrossIndustryInvoice/>', 'c.xml'));
+        self::assertSame('https://api.invoicexml.com/v1/render/xml/to/pdf', (string) $this->lastRequest()->getUri());
+        self::assertStringContainsString('name="file"; filename="c.xml"', (string) $this->lastRequest()->getBody());
+    }
+
+    public function testRenderXmlSendsQrCodeSwitchAsText(): void
+    {
+        $client = $this->client(self::pdfResponse('invoice.pdf'), self::pdfResponse('invoice.pdf'));
+
+        $client->renderXmlToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: true);
         self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\ntrue\r\n", (string) $this->lastRequest()->getBody());
 
-        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: false);
+        $client->renderXmlToPdf(new File('<Invoice/>', 'x.xml'), includeQrCode: false);
         self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\nfalse\r\n", (string) $this->lastRequest()->getBody());
     }
 
     public function testRenderOmitsUnsetOptions(): void
     {
-        $client = $this->client(self::pdfResponse('invoice.pdf'), self::pdfResponse('invoice.pdf'));
+        $client = $this->client(self::pdfResponse('invoice.pdf'));
 
-        $client->renderXrechnungToPdf(new File('<Invoice/>', 'x.xml'));
+        $client->renderXmlToPdf(new File('<Invoice/>', 'x.xml'));
+
         $body = (string) $this->lastRequest()->getBody();
         self::assertSame(1, substr_count($body, 'form-data; name="'));
         self::assertStringContainsString('name="file"; filename="x.xml"', $body);
-
-        $client->renderCiiToPdf(new File('<rsm:CrossIndustryInvoice/>', 'c.xml'));
-        $body = (string) $this->lastRequest()->getBody();
-        self::assertSame(1, substr_count($body, 'form-data; name="'));
-        self::assertStringContainsString('name="file"; filename="c.xml"', $body);
-    }
-
-    public function testRenderCiiPostsToItsRouteWithEveryOption(): void
-    {
-        $client = $this->client(self::pdfResponse('invoice.pdf'));
-
-        $file = $client->renderCiiToPdf(new File('<rsm:CrossIndustryInvoice/>', 'c.xml'), 'fr', 'https://example.com/logo.png', true);
-
-        $body = (string) $this->lastRequest()->getBody();
-        self::assertSame('https://api.invoicexml.com/v1/render/cii/to/pdf', (string) $this->lastRequest()->getUri());
-        self::assertStringContainsString("name=\"language\"\r\n\r\nfr\r\n", $body);
-        self::assertStringContainsString("name=\"logoUrl\"\r\n\r\nhttps://example.com/logo.png\r\n", $body);
-        self::assertStringContainsString("name=\"includeQrCode\"\r\n\r\ntrue\r\n", $body);
-        self::assertSame('invoice.pdf', $file->filename);
-        self::assertSame('application/pdf', $file->contentType);
     }
 
     public function testConvertToXmlPostsTheFileAndReturnsTheXml(): void
@@ -983,6 +979,91 @@ final class ClientTest extends TestCase
         self::assertSame(self::invoice(), $result['invoice']);
     }
 
+    public function testParseJsonUploadsThePdfAndMapsConfidenceAndLanguage(): void
+    {
+        $confidence = [
+            'overall' => 0.9,
+            'areas' => ['sellerIdentification' => 0.98, 'buyerIdentification' => 0.95, 'taxCalculation' => 0.9, 'lineItems' => 0.75],
+        ];
+        $client = $this->client(self::jsonResponse(['invoice' => self::invoice(), 'confidence' => $confidence, 'language' => 'de']));
+
+        $result = $client->parseJson(new File('%PDF-1.7 scan', 'rechnung.pdf'));
+
+        $request = $this->lastRequest();
+        $body = (string) $request->getBody();
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.invoicexml.com/v1/parse/json', (string) $request->getUri());
+        self::assertStringStartsWith('multipart/form-data; boundary=', $request->getHeaderLine('Content-Type'));
+        self::assertStringContainsString("name=\"file\"; filename=\"rechnung.pdf\"\r\nContent-Type: application/pdf\r\n\r\n%PDF-1.7 scan\r\n", $body);
+        self::assertSame(1, substr_count($body, 'form-data; name="'));
+
+        self::assertSame(['invoice' => self::invoice(), 'confidence' => $confidence, 'language' => 'de'], $result);
+    }
+
+    public function testParseJsonWithoutConfidenceOrLanguageReturnsNulls(): void
+    {
+        $client = $this->client(self::jsonResponse(['invoice' => self::invoice()]));
+
+        $result = $client->parseJson(new File('%PDF', 'in.pdf'));
+
+        self::assertSame(['invoice' => self::invoice(), 'confidence' => null, 'language' => null], $result);
+    }
+
+    public function testParseJsonReturnsWholeNumberScoresAsFloats(): void
+    {
+        $client = $this->client(self::jsonResponse(['invoice' => self::invoice(), 'confidence' => [
+            'overall' => 1,
+            'areas' => ['sellerIdentification' => 1, 'buyerIdentification' => null, 'taxCalculation' => 0, 'lineItems' => 0.5],
+        ]]));
+
+        $result = $client->parseJson(new File('%PDF', 'in.pdf'));
+
+        self::assertSame(
+            ['overall' => 1.0, 'areas' => ['sellerIdentification' => 1.0, 'buyerIdentification' => null, 'taxCalculation' => 0.0, 'lineItems' => 0.5]],
+            $result['confidence'],
+        );
+    }
+
+    public function testParseJsonMakesOneRequestOn429AndThrows(): void
+    {
+        $client = $this->client(
+            self::jsonResponse(['title' => 'Too Many Requests', 'status' => 429, 'errorCode' => 4019], 429, ['Retry-After' => '3']),
+            self::jsonResponse(['invoice' => self::invoice()]),
+        );
+
+        try {
+            $client->parseJson(new File('%PDF', 'in.pdf'));
+            self::fail('Expected TooManyRequestsException');
+        } catch (TooManyRequestsException $e) {
+            self::assertSame(429, $e->statusCode);
+            self::assertSame(3, $e->retryAfter);
+            self::assertSame(4019, $e->errorCode);
+        }
+
+        self::assertSame([], $this->sleeps);
+        self::assertCount(1, $this->history);
+    }
+
+    public function testRefusedParseThrowsApiException(): void
+    {
+        $client = $this->client(self::jsonResponse([
+            'title' => 'Invalid file',
+            'status' => 400,
+            'detail' => 'The uploaded file is not a readable PDF.',
+            'errorCode' => 4007,
+        ], 400, ['Content-Type' => 'application/problem+json']));
+
+        try {
+            $client->parseJson(new File('not a pdf', 'in.pdf'));
+            self::fail('Expected ApiException');
+        } catch (ApiException $e) {
+            self::assertSame(400, $e->statusCode);
+            self::assertSame(4007, $e->errorCode);
+            self::assertSame('Invalid file', $e->title);
+            self::assertSame('The uploaded file is not a readable PDF.', $e->detail);
+        }
+    }
+
     public function testExtractAttachmentsReturnsZip(): void
     {
         $name = 'in-attachments.zip';
@@ -1038,15 +1119,15 @@ final class ClientTest extends TestCase
             new Response(200, ['Content-Type' => 'application/pdf', 'X-Invoice-Valid' => 'true'], '%PDF-1.7 report'),
         );
 
-        $client->renderCiiToPdf(new File('<x/>', 'a.xml'));
+        $client->renderXmlToPdf(new File('<x/>', 'a.xml'));
         $client->convertZugferdToUbl(new File('%PDF', 'a.pdf'));
         $client->validateZugferdReport(new File('%PDF', 'a.pdf'));
 
         self::assertSame([1, 1, 1], $this->sleeps);
         self::assertSame(
             [
-                '/v1/render/cii/to/pdf',
-                '/v1/render/cii/to/pdf',
+                '/v1/render/xml/to/pdf',
+                '/v1/render/xml/to/pdf',
                 '/v1/convert/zugferd/to/ubl',
                 '/v1/convert/zugferd/to/ubl',
                 '/v1/validate/zugferd/report',

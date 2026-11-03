@@ -6,7 +6,8 @@ namespace InvoiceXml\ZugferdXrechnung;
 
 /**
  * Thrown on HTTP 429 once the client's automatic retries are used up, or on the first
- * 429 of a transform call, which is not retried. A 429 is not billed.
+ * 429 of a transform or parse call. Neither is retried, because a retry repeats the AI
+ * read. A 429 is not billed.
  */
 final class TooManyRequestsException extends ApiException
 {

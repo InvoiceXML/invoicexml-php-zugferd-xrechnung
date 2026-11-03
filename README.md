@@ -177,13 +177,13 @@ $ubl = $client->createUbl($invoice, ['profile' => 'peppol-bis-3']);
 ### Render an invoice XML as PDF
 
 ```php
-$preview = $client->renderXrechnungToPdf('xrechnung.xml', language: 'de');
-$preview = $client->renderCiiToPdf('invoice.xml', logoUrl: 'https://example.com/logo.png', includeQrCode: true);
+$preview = $client->renderXmlToPdf('xrechnung.xml', language: 'de');
+$preview = $client->renderXmlToPdf('invoice.xml', logoUrl: 'https://example.com/logo.png', includeQrCode: true);
 ```
 
-`language` is `en`, `de` or `fr`. `logoUrl` prints your logo and `includeQrCode: true` prints the payment QR code. Rendering shows what the XML carries and does not validate it.
+`renderXmlToPdf()` takes any invoice XML, XRechnung (UBL or CII), CII (such as the XML of a ZUGFeRD invoice) or UBL, and detects the format. `language` is `en`, `de` or `fr`. `logoUrl` prints your logo and `includeQrCode: true` prints the payment QR code. Rendering shows what the XML carries and does not validate it.
 
-The reference pages are [render XRechnung](https://www.invoicexml.com/docs/api/render/xrechnung/to/pdf) and [render CII](https://www.invoicexml.com/docs/api/render/cii/to/pdf).
+The reference page is [render XML](https://www.invoicexml.com/docs/api/render/xml/to/pdf).
 
 ### Convert between formats
 
@@ -253,6 +253,17 @@ $zip = $client->extractAttachments('incoming.pdf');       // supporting document
 
 Extraction parses the embedded XML deterministically, with no AI involved. The returned invoice can go straight back into `createZugferd()` or `createXrechnung()`.
 
+### Read a PDF invoice with AI
+
+`parseJson()` reads any PDF invoice, typed, scanned or photographed, into the same invoice array, plus `confidence` scores from 0 to 1 and the `language` the invoice is written in (each `null` when not reported). Any language can come back, so `language` is not always a value the `language` option of the create and render methods takes (`en`, `de` or `fr`). AI reads the PDF, so a person must check the data before it is used. Embedded XML is ignored, so use `extractJson()` for a ZUGFeRD PDF. A 429 on this method is not retried automatically.
+
+```php
+$parsed  = $client->parseJson('scan.pdf');
+$invoice = $parsed['invoice'];                            // same shape the create methods accept
+```
+
+The reference page is [parse to JSON](https://www.invoicexml.com/docs/api/parse/json).
+
 ### Transform a PDF invoice
 
 These methods take a PDF without embedded XML. AI reads the PDF, so a person must check the result before it is used.
@@ -265,6 +276,10 @@ $xml     = $client->transformToXrechnung('invoice.pdf', buyerReference: '08111-0
 `transformToZugferd()` takes `language` (`en`, `de`, `fr` or `auto`, the default, which follows the language of the invoice). By default the PDF is rendered from the data that was read and ends with an electronic invoice details section, so that data can be checked on the pages. Pass `includeAdvancedProperties: false` to leave the section out, or `preserveOriginalPdf: true` to keep the uploaded PDF as the visual layer. `transformToXrechnung()` requires the Leitweg-ID in `buyerReference`. Both take `validationLanguage` (`en`, `de` or `fr`), which words the findings of a refused invoice. A 429 on these methods is not retried automatically, so wait for `Retry-After` before calling again if you want to retry.
 
 The reference pages are [transform to ZUGFeRD](https://www.invoicexml.com/docs/api/transform/to/zugferd) and [transform to XRechnung](https://www.invoicexml.com/docs/api/transform/to/xrechnung).
+
+## Examples
+
+The [examples](examples) folder holds small scripts that each show one common task from start to finish: creating a ZUGFeRD invoice with your own PDF, creating a CII XML and embedding it, emailing invoices, validating, rendering, converting, transforming a PDF invoice, reading a PDF invoice with AI and reading e-invoices. See the [examples overview](examples/README.md) for the list and how to run them.
 
 ## Errors and rate limits
 
@@ -285,7 +300,7 @@ try {
 
 `errorCode` is a stable numeric code, documented under [error handling](https://www.invoicexml.com/docs/error-handling).
 
-When too many requests for one API key run at the same time, the API answers 429 with a `Retry-After` header. Every call except transform waits that long and resends the request, up to 3 times. A 429 is not billed. If the retries are used up, a `TooManyRequestsException` carries `retryAfter` in seconds. Set `maxRetries: 0` to handle 429 yourself.
+When too many requests for one API key run at the same time, the API answers 429 with a `Retry-After` header. Every call except transform and parse waits that long and resends the request, up to 3 times. A 429 is not billed. If the retries are used up, a `TooManyRequestsException` carries `retryAfter` in seconds. Set `maxRetries: 0` to handle 429 yourself.
 
 ## Configuration
 

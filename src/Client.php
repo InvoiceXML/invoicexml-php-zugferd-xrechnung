@@ -40,7 +40,7 @@ final class Client
 {
     public const DEFAULT_BASE_URL = 'https://api.invoicexml.com';
     private const MAX_RETRY_AFTER_SECONDS = 120;
-    private const USER_AGENT = 'invoicexml-php-zugferd-xrechnung/1.0';
+    private const USER_AGENT = 'invoicexml-php-zugferd-xrechnung/1.3.0';
 
     private readonly ClientInterface $http;
     private readonly RequestFactoryInterface $requestFactory;
@@ -55,7 +55,7 @@ final class Client
      * @param ClientInterface|null         $httpClient     Any PSR-18 client. Defaults to Guzzle.
      * @param RequestFactoryInterface|null $requestFactory PSR-17 request factory. Defaults to Guzzle's.
      * @param StreamFactoryInterface|null  $streamFactory  PSR-17 stream factory. Defaults to Guzzle's.
-     * @param int                          $maxRetries     How often a 429 is retried after waiting Retry-After seconds, on every call except transform. 0 disables retries.
+     * @param int                          $maxRetries     How often a 429 is retried after waiting Retry-After seconds, on every call except transform and parse. 0 disables retries.
      * @param (callable(int): void)|null   $sleep          Wait function used between retries, in seconds. Defaults to sleep().
      */
     public function __construct(
@@ -250,33 +250,19 @@ final class Client
     }
 
     /**
-     * Renders an XRechnung XML (UBL or CII) as a human-readable PDF.
+     * Renders any invoice XML as a human-readable PDF. XRechnung (UBL or CII), CII (such as the
+     * XML of a ZUGFeRD invoice) and UBL are accepted, and the format is detected from the XML.
      *
      * @param string|File $xml           Path to the XML, or a File.
      * @param string|null $language      "en", "de" or "fr". Defaults to "en".
      * @param string|null $logoUrl       Public PNG or JPEG URL printed on the PDF.
      * @param bool|null   $includeQrCode True prints the payment QR code on the PDF.
      */
-    public function renderXrechnungToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null, ?bool $includeQrCode = null): File
+    public function renderXmlToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null, ?bool $includeQrCode = null): File
     {
         $fields = self::formFields(['language' => $language, 'logoUrl' => $logoUrl, 'includeQrCode' => $includeQrCode]);
 
-        return $this->file($this->postMultipart('/v1/render/xrechnung/to/pdf', ['file' => $xml], $fields), 'invoice.pdf');
-    }
-
-    /**
-     * Renders a CII XML as a human-readable PDF.
-     *
-     * @param string|File $xml           Path to the XML, or a File.
-     * @param string|null $language      "en", "de" or "fr". Defaults to "en".
-     * @param string|null $logoUrl       Public PNG or JPEG URL printed on the PDF.
-     * @param bool|null   $includeQrCode True prints the payment QR code on the PDF.
-     */
-    public function renderCiiToPdf(string|File $xml, ?string $language = null, ?string $logoUrl = null, ?bool $includeQrCode = null): File
-    {
-        $fields = self::formFields(['language' => $language, 'logoUrl' => $logoUrl, 'includeQrCode' => $includeQrCode]);
-
-        return $this->file($this->postMultipart('/v1/render/cii/to/pdf', ['file' => $xml], $fields), 'invoice.pdf');
+        return $this->file($this->postMultipart('/v1/render/xml/to/pdf', ['file' => $xml], $fields), 'invoice.pdf');
     }
 
     /**
@@ -463,6 +449,34 @@ final class Client
     public function extractJson(string|File $file): array
     {
         return $this->json($this->postMultipart('/v1/extract/json', ['file' => $file]));
+    }
+
+    /**
+     * Reads a PDF invoice (typed, scanned or photographed) into invoice data. AI reads the PDF,
+     * so a person must check the data before it is used. XML embedded in the PDF is ignored,
+     * use extractJson() to read a ZUGFeRD PDF. The returned invoice has the same shape the
+     * create methods accept. A 429 on this method is not retried automatically, so wait for
+     * Retry-After before calling again if you want to retry.
+     *
+     * confidence scores run from 0.0 (had to guess) to 1.0 (unambiguous). overall is the mean of
+     * the reported areas, and lineItems is capped when the lines do not add up to the printed
+     * totals. language is the lowercase ISO 639-1 code of the language the invoice is written in.
+     * Any language can come back, so it is not always a value the language option of the create
+     * and render methods takes ("en", "de" or "fr").
+     * confidence and language are null when the API leaves them out.
+     *
+     * @param string|File $pdf Path to the PDF, or a File.
+     * @return array{
+     *     invoice: array<string, mixed>,
+     *     confidence: array{overall: float|null, areas: array<string, float|null>}|null,
+     *     language: string|null
+     * } areas holds sellerIdentification, buyerIdentification, taxCalculation and lineItems.
+     *
+     * @throws ApiException when the PDF cannot be read as an invoice
+     */
+    public function parseJson(string|File $pdf): array
+    {
+        return self::parsed($this->json($this->postMultipart('/v1/parse/json', ['file' => $pdf], retryRateLimit: false)));
     }
 
     /**
@@ -692,6 +706,41 @@ final class Client
         }
 
         return $decoded;
+    }
+
+    /**
+     * The parse result with every key present: confidence and language are null when the
+     * response leaves them out.
+     *
+     * @param array<string, mixed> $body
+     * @return array{invoice: array<string, mixed>, confidence: array{overall: float|null, areas: array<string, float|null>}|null, language: string|null}
+     */
+    private static function parsed(array $body): array
+    {
+        if (!is_array($body['invoice'] ?? null)) {
+            throw new \UnexpectedValueException('The InvoiceXML API returned an unexpected response body.');
+        }
+
+        $confidence = null;
+        if (is_array($body['confidence'] ?? null)) {
+            $areas = is_array($body['confidence']['areas'] ?? null) ? $body['confidence']['areas'] : [];
+            $confidence = [
+                'overall' => self::score($body['confidence']['overall'] ?? null),
+                'areas' => array_map(self::score(...), $areas),
+            ];
+        }
+
+        return [
+            'invoice' => $body['invoice'],
+            'confidence' => $confidence,
+            'language' => is_string($body['language'] ?? null) && $body['language'] !== '' ? $body['language'] : null,
+        ];
+    }
+
+    /** A confidence score as a float, so a score the API sends as 1 reads as 1.0. */
+    private static function score(mixed $value): ?float
+    {
+        return $value === null ? null : (float) $value;
     }
 
     private function validation(ResponseInterface $response): ValidationResult

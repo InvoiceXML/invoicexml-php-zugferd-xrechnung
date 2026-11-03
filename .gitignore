@@ -2,3 +2,9 @@
 /composer.lock
 /.phpunit.cache/
 /.phpunit.result.cache
+
+# Output of the examples
+/*.pdf
+/*.zip
+# Input files the examples read by default
+/invoices/
